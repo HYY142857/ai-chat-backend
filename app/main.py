@@ -1,53 +1,41 @@
-import os
-import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI
+from app.routers import chat, upload, auth
+from tortoise.contrib.fastapi import register_tortoise
+from typing import Dict
 
-app = FastAPI(title="AI Chat Backend")
-
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+app = FastAPI()
 
 
-# ---------- Schemas ----------
+# Tortoise-ORM 配置
+TORTOISE_ORM: Dict = {
+    "connections": {
+        # 开发环境使用 SQLite（基于文件，无需服务器）
+        "default": "sqlite://db.sqlite3",
+    },
+    "apps": {
+        "models": {
+            "models": ["app.models.user", "app.models.chat_message", "aerich.models"],  # 模型模块和 Aerich 迁移模型
+            "default_connection": "default",
+        }
+    },
+    # 连接池配置（推荐）
+    "use_tz": False,  # 是否使用时区
+    "timezone": "UTC",  # 默认时区
+}
 
-class ChatRequest(BaseModel):
-    message: str
+register_tortoise(app,
+                  config=TORTOISE_ORM,
+                  generate_schemas=True,  # 开发环境自动生成表结构
+                  add_exception_handlers=True  # 添加默认异常处理
+                  )
 
 
-class ChatResponse(BaseModel):
-    reply: str
 
-
-class UploadResponse(BaseModel):
-    filename: str
-    size: int
-
-
-# ---------- Routes ----------
-
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health():
     return {"status": "ok"}
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
-    # TODO: 接入真正的 AI 对话逻辑
-    return {"reply": f"收到：{req.message}"}
-
-
-@app.post("/upload", response_model=UploadResponse)
-async def upload(file: UploadFile = File(...)):
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="缺少文件名")
-
-    ext = os.path.splitext(file.filename)[1]
-    safe_name = f"{uuid.uuid4().hex}{ext}"
-    save_path = os.path.join(UPLOAD_DIR, safe_name)
-
-    content = await file.read()
-    with open(save_path, "wb") as f:
-        f.write(content)
-
-    return {"filename": safe_name, "size": len(content)}
+app.include_router(chat.router)
+app.include_router(upload.router)
+app.include_router(auth.router)
