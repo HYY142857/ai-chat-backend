@@ -2,9 +2,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from passlib.hash import pbkdf2_sha256
 from app.models.user import User
+import jwt
+
+SECRET_KEY = "your-secret-key"  # 加密用的密钥，随便写一串复杂的字符串
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-
 
 class AuthRequest(BaseModel):
     username: str
@@ -27,13 +29,19 @@ async def register(req: AuthRequest):
 
 @router.post("/login")
 async def login(req: AuthRequest):
-    # 查找用户
     user = await User.filter(username=req.username).first()
     if not user:
         raise HTTPException(status_code=401, detail="用户不存在")
 
-    # 验证密码
     if not pbkdf2_sha256.verify(req.password, user.password):
         raise HTTPException(status_code=401, detail="密码错误")
 
-    return {"message": "登录成功", "user_id": user.id}
+    # 生成 Token
+    token = jwt.encode(
+        {"user_id": user.id},
+        SECRET_KEY,
+        algorithm="HS256"
+    )
+
+    return {"message": "登录成功", "token": token}
+

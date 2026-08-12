@@ -4,12 +4,16 @@ from app.models.user import User
 from app.models.chat_message import ChatMessage
 from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import jwt
 
+SECRET_KEY = "your-secret-key"  # 跟 auth.py 里保持一致
+security = HTTPBearer()
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
 class ChatRequest(BaseModel):
-    user_id: int
     message: str
 
 
@@ -30,10 +34,20 @@ client = AsyncOpenAI(
     base_url="https://api.deepseek.com"
 )
 
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials  # 这里直接就是 Token，不需要手动去掉 "Bearer "
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return payload["user_id"]
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token 无效或已过期")
+
+
 @router.post("", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     # 查出这个用户
-    user = await User.filter(id=req.user_id).first()
+    user = await User.filter(id=user_id).first()
 
     # 调用 DeepSeek API
     response = await client.chat.completions.create(
@@ -67,8 +81,8 @@ async def history(req: HistoryRequest):
     return {"messages": result}
 
 @router.post("/stream")
-async def chat_stream(req: ChatRequest):
-    user = await User.filter(id=req.user_id).first()
+async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)):
+    user = await User.filter(id=user_id).first()
 
     # 调用 DeepSeek，开启流式
     response = await client.chat.completions.create(
