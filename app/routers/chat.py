@@ -21,10 +21,6 @@ class ChatResponse(BaseModel):
     reply: str
 
 
-class HistoryRequest(BaseModel):
-    user_id: int
-
-
 class HistoryResponse(BaseModel):
     messages: list
 
@@ -65,9 +61,9 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     return {"reply": reply_text}
 
 @router.post("/history")
-async def history(req: HistoryRequest):
+async def history(user_id: int = Depends(get_current_user)):
     # 查出这个用户的所有聊天记录
-    records = await ChatMessage.filter(user_id=req.user_id).order_by("created_at")
+    records = await ChatMessage.filter(user_id=user_id).order_by("created_at")
 
     # 把每条记录整理成字典返回
     result = []
