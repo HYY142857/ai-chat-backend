@@ -6,6 +6,7 @@ class FileRecord(Model):
     original_name = fields.CharField(max_length=255)     # 原始文件名
     saved_name = fields.CharField(max_length=255)        # UUID 重命名后的文件名
     file_size = fields.IntField()                         # 文件大小（字节）
+    content = fields.TextField(null=True)                 # 提取出来的文字内容
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
