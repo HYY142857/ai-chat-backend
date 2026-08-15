@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from passlib.hash import pbkdf2_sha256
 from app.models.user import User
-import jwt
+import jwt,datetime
 
 SECRET_KEY = "your-secret-key"  # 加密用的密钥，随便写一串复杂的字符串
 
@@ -38,7 +38,10 @@ async def login(req: AuthRequest):
 
     # 生成 Token
     token = jwt.encode(
-        {"user_id": user.id},
+        {
+            "user_id": user.id,
+            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)  # 24小时后过期
+        },
         SECRET_KEY,
         algorithm="HS256"
     )

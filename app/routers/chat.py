@@ -36,8 +36,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         return payload["user_id"]
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token 已过期，请重新登录")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Token 无效或已过期")
+        raise HTTPException(status_code=401, detail="Token 无效")
 
 
 @router.post("", response_model=ChatResponse)
@@ -45,12 +47,22 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     # 查出这个用户
     user = await User.filter(id=user_id).first()
 
+    # 查出最近 10 条聊天记录（倒序，最新的在后面）
+    history = await ChatMessage.filter(user_id=user_id).order_by("-created_at").limit(10)
+    history = list(reversed(history))  # 加上这行，变成正序
+    # 拼成 messages 数组
+    messages = []
+    for record in history:
+        messages.append({"role": "user", "content": record.message})
+        messages.append({"role": "assistant", "content": record.reply})
+
+    # 加上当前这条消息
+    messages.append({"role": "user", "content": req.message})
+
     # 调用 DeepSeek API
     response = await client.chat.completions.create(
         model="deepseek-chat",
-        messages=[
-            {"role": "user", "content": req.message}
-        ]
+        messages=messages
     )
     reply_text = response.choices[0].message.content
     
@@ -80,10 +92,23 @@ async def history(user_id: int = Depends(get_current_user)):
 async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)):
     user = await User.filter(id=user_id).first()
 
+    # 查出最近 10 条聊天记录（倒序，最新的在后面）
+    history = await ChatMessage.filter(user_id=user_id).order_by("-created_at").limit(10)
+    history = list(reversed(history))  # 加上这行，变成正序
+
+    # 拼成 messages 数组
+    messages = []
+    for record in history:
+        messages.append({"role": "user", "content": record.message})
+        messages.append({"role": "assistant", "content": record.reply})
+
+    # 加上当前这条消息
+    messages.append({"role": "user", "content": req.message})
+    
     # 调用 DeepSeek，开启流式
     response = await client.chat.completions.create(
         model="deepseek-chat",
-        messages=[{"role": "user", "content": req.message}],
+        messages=messages,
         stream=True
     )
 
