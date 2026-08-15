@@ -2,10 +2,12 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from app.models.user import User
 from app.models.chat_message import ChatMessage
+from app.models.file_record import FileRecord
 from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
 from fastapi import Depends, HTTPException
 from app.utils.auth import get_current_user
+from app.utils.rag import retrieve_relevant_chunks
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -43,6 +45,21 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
 
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})
+
+    # 查出这个用户上传的所有文件
+    files = await FileRecord.filter(user_id=user_id).all()
+    documents = [{"content": f.content} for f in files if f.content]
+
+    # 检索相关片段
+    relevant_chunks = retrieve_relevant_chunks(req.message, documents)
+
+    # 如果找到相关内容，加一个 system message 告诉 AI
+    if relevant_chunks:
+        context = "\n---\n".join(relevant_chunks)
+        messages.insert(0, {
+            "role": "system",
+            "content": f"以下是用户上传的参考资料，请基于这些内容回答用户的问题。如果资料中没有相关信息，请说明。\n\n参考资料：\n{context}"
+        })
 
     # 调用 DeepSeek API
     response = await client.chat.completions.create(
@@ -86,6 +103,21 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
     for record in history:
         messages.append({"role": "user", "content": record.message})
         messages.append({"role": "assistant", "content": record.reply})
+
+    # 查出这个用户上传的所有文件
+    files = await FileRecord.filter(user_id=user_id).all()
+    documents = [{"content": f.content} for f in files if f.content]
+
+    # 检索相关片段
+    relevant_chunks = retrieve_relevant_chunks(req.message, documents)
+
+    # 如果找到相关内容，加一个 system message 告诉 AI
+    if relevant_chunks:
+        context = "\n---\n".join(relevant_chunks)
+        messages.insert(0, {
+            "role": "system",
+            "content": f"以下是用户上传的参考资料，请基于这些内容回答用户的问题。如果资料中没有相关信息，请说明。\n\n参考资料：\n{context}"
+        })
 
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})
