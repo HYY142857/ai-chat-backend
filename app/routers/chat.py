@@ -5,11 +5,8 @@ from app.models.chat_message import ChatMessage
 from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
 from fastapi import Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import jwt
+from app.utils.auth import get_current_user
 
-SECRET_KEY = "your-secret-key"  # 跟 auth.py 里保持一致
-security = HTTPBearer()
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
@@ -29,18 +26,6 @@ client = AsyncOpenAI(
     api_key="sk-f423fb4302d547b3a5b05c331fc12b8c",
     base_url="https://api.deepseek.com"
 )
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials  # 这里直接就是 Token，不需要手动去掉 "Bearer "
-
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        return payload["user_id"]
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token 已过期，请重新登录")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Token 无效")
-
 
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
@@ -126,3 +111,19 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
         yield "data: [DONE]\n\n"  # 告诉前端结束了
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+@router.delete("/{message_id}")
+async def delete_message(message_id: int, user_id: int = Depends(get_current_user)):
+    # 查出这条记录
+    record = await ChatMessage.filter(id=message_id, user_id=user_id).first()
+    
+    if not record:
+        raise HTTPException(status_code=404, detail="聊天记录不存在")
+
+    await record.delete()
+    return {"message": "删除成功"}
+
+@router.delete("")
+async def delete_all_messages(user_id: int = Depends(get_current_user)):
+    await ChatMessage.filter(user_id=user_id).delete()
+    return {"message": "已清空所有聊天记录"}

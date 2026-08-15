@@ -1,10 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from passlib.hash import pbkdf2_sha256
 from app.models.user import User
 import jwt,datetime
+from app.utils.auth import get_current_user, SECRET_KEY
 
-SECRET_KEY = "your-secret-key"  # 加密用的密钥，随便写一串复杂的字符串
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -40,7 +40,7 @@ async def login(req: AuthRequest):
     token = jwt.encode(
         {
             "user_id": user.id,
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)  # 24小时后过期
+            "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)
         },
         SECRET_KEY,
         algorithm="HS256"
@@ -48,3 +48,14 @@ async def login(req: AuthRequest):
 
     return {"message": "登录成功", "token": token}
 
+@router.get("/me")
+async def get_me(user_id: int = Depends(get_current_user)):
+    user = await User.filter(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    return {
+        "id": user.id,
+        "username": user.username,
+        "created_at": str(user.created_at)
+    }
