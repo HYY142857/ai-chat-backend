@@ -8,7 +8,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # 允许所有来源（开发用），生产环境改成具体域名
+    allow_origins=[
+        "https://ai-chat-frontend-lilac.vercel.app",
+        "http://localhost:5173",  # 保留本地开发用
+    ],       # 允许所有来源（开发用），生产环境改成具体域名
     allow_credentials=True,
     allow_methods=["*"],       # 允许所有 HTTP 方法
     allow_headers=["*"],       # 允许所有请求头
