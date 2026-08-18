@@ -8,3 +8,4 @@ openai
 pyjwt
 asyncpg
 PyPDF2
+python-docx
