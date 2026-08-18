@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from app.routers import chat, upload, auth
 from tortoise.contrib.fastapi import register_tortoise
@@ -17,11 +18,18 @@ app.add_middleware(
     allow_headers=["*"],       # 允许所有请求头
 )
 
+db_url = os.getenv("DATABASE_URL")
+if db_url:
+    # 线上环境：PostgreSQL
+    db_url = db_url.replace("postgresql://", "postgres://")  # Tortoise 需要 postgres:// 前缀
+else:
+    # 本地环境：SQLite
+    db_url = "sqlite://db.sqlite3"
+
 # Tortoise-ORM 配置
 TORTOISE_ORM: Dict = {
     "connections": {
-        # 开发环境使用 SQLite（基于文件，无需服务器）
-        "default": "sqlite://db.sqlite3",
+        "default": db_url,
     },
     "apps": {
         "models": {

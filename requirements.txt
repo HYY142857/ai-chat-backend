@@ -6,3 +6,4 @@ aerich
 passlib
 openai
 pyjwt
+asyncpg
