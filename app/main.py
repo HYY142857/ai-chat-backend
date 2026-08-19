@@ -21,7 +21,9 @@ app.add_middleware(
 db_url = os.getenv("DATABASE_URL")
 if db_url:
     db_url = db_url.replace("postgresql://", "postgres://")
-    db_url = db_url.replace("sslmode=require", "ssl=true")
+    # asyncpg 不接受 URL 里的 ?sslmode=xxx，直接去掉
+    if "?" in db_url:
+        db_url = db_url.split("?")[0]
 else:
     # 本地环境：SQLite
     db_url = "sqlite://db.sqlite3"
