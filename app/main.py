@@ -20,8 +20,8 @@ app.add_middleware(
 
 db_url = os.getenv("DATABASE_URL")
 if db_url:
-    # 线上环境：PostgreSQL
-    db_url = db_url.replace("postgresql://", "postgres://")  # Tortoise 需要 postgres:// 前缀
+    db_url = db_url.replace("postgresql://", "postgres://")
+    db_url = db_url.replace("sslmode=require", "ssl=true")
 else:
     # 本地环境：SQLite
     db_url = "sqlite://db.sqlite3"
