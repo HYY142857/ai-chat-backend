@@ -57,5 +57,22 @@ async def get_me(user_id: int = Depends(get_current_user)):
     return {
         "id": user.id,
         "username": user.username,
-        "created_at": str(user.created_at)
+        "created_at": str(user.created_at),
+        "total_tokens": user.total_tokens
     }
+
+@router.get("/admin/users")
+async def admin_users(user_id: int = Depends(get_current_user)):
+    if user_id != 1:  # 只有你能访问
+        raise HTTPException(status_code=403, detail="无权限")
+    
+    users = await User.all()
+    result = []
+    for u in users:
+        result.append({
+            "id": u.id,
+            "username": u.username,
+            "total_tokens": u.total_tokens,
+            "created_at": str(u.created_at),
+        })
+    return {"users": result}

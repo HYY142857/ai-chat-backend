@@ -70,7 +70,14 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     
 
     # 存进数据库
-    await ChatMessage.create(user=user, message=req.message, reply=reply_text)
+    await ChatMessage.create(user=user, 
+                             message=req.message, 
+                             reply=reply_text, 
+                             prompt_tokens=response.usage.prompt_tokens, 
+                             completion_tokens=response.usage.completion_tokens
+                            )
+    user.total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
+    await user.save()
 
     return {"reply": reply_text}
 
@@ -139,7 +146,14 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
                 yield f"data: {piece}\n\n"  # SSE 格式
 
         # 流结束后存数据库
-        await ChatMessage.create(user=user, message=req.message, reply=full_reply)
+        await ChatMessage.create(user=user, 
+                                 message=req.message, 
+                                 reply=full_reply,
+                                 prompt_tokens=response.usage.prompt_tokens, 
+                                 completion_tokens=response.usage.completion_tokens
+                                )
+        user.total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
+        await user.save()
         yield "data: [DONE]\n\n"  # 告诉前端结束了
 
     return StreamingResponse(generate(), media_type="text/event-stream")
