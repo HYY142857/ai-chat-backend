@@ -1,13 +1,13 @@
-from fastapi import APIRouter
+from fastapi import APIRouter,Depends, HTTPException
 from pydantic import BaseModel
 from app.models.user import User
 from app.models.chat_message import ChatMessage
 from app.models.file_record import FileRecord
 from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
-from fastapi import Depends, HTTPException
 from app.utils.auth import get_current_user
 from app.utils.rag import retrieve_relevant_chunks
+import os
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -25,7 +25,7 @@ class HistoryResponse(BaseModel):
 
 # 创建客户端
 client = AsyncOpenAI(
-    api_key="sk-f423fb4302d547b3a5b05c331fc12b8c",
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com"
 )
 

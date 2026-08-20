@@ -9,3 +9,4 @@ pyjwt
 asyncpg
 PyPDF2
 python-docx
+python-dotenv
