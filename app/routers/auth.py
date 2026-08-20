@@ -11,10 +11,15 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 class AuthRequest(BaseModel):
     username: str
     password: str
-
+    invite_code: str = ""
 
 @router.post("/register")
 async def register(req: AuthRequest):
+    import os
+    correct_code = os.getenv("INVITE_CODE", "默认邀请码")
+    if req.invite_code != correct_code:
+        raise HTTPException(status_code=403, detail="邀请码错误")
+
     # 检查用户名是否已存在
     existing = await User.filter(username=req.username).first()
     if existing:
