@@ -1,35 +1,65 @@
-# AI Chat Backend
+# AI Chat Platform
 
-基于 FastAPI 构建的 AI 智能对话后端系统，集成 DeepSeek 大模型 API 与 RAG 检索增强生成，支持 SSE 流式输出、JWT 用户认证、多轮对话记忆、聊天记录持久化。
+基于 FastAPI + React 构建的全栈 AI 智能对话平台，集成 DeepSeek 大模型 API 与 RAG 检索增强生成，支持 SSE 流式输出、JWT 用户认证、邀请码注册、多轮对话记忆、Token 用量追踪。
 
-**在线演示**：https://ai-chat-backend-be6s.onrender.com/docs
+**在线地址**：https://ai-chat-frontend-lilac.vercel.app
+
+**API 文档**：https://ai-chat-backend-be6s.onrender.com/docs
 
 ## 技术栈
 
-- **后端框架**：FastAPI
-- **ORM**：Tortoise ORM
-- **数据库**：SQLite
-- **AI 模型**：DeepSeek API
-- **RAG 检索**：自定义关键词匹配 + 文本切块
-- **认证**：JWT（PyJWT）+ HTTPBearer（支持 Swagger UI 自动授权）
-- **流式输出**：Server-Sent Events (SSE)
-- **文件解析**：PyPDF2（PDF）、python-docx（Word）
-- **密码加密**：passlib (PBKDF2-SHA256)
-- **容器化**：Docker
+| 层级 | 技术 |
+|------|------|
+| 后端框架 | FastAPI |
+| ORM | Tortoise ORM |
+| 数据库（本地） | SQLite |
+| 数据库（生产） | PostgreSQL (Neon) |
+| AI 模型 | DeepSeek API |
+| RAG 检索 | 自定义关键词匹配 + 文本切块 |
+| 认证 | JWT (PyJWT) + HTTPBearer |
+| 流式输出 | Server-Sent Events (SSE) |
+| 文件解析 | PyPDF2 (PDF)、python-docx (Word) |
+| 密码加密 | passlib (PBKDF2-SHA256) |
+| 前端 | React 19 + Vite 8 |
+| 部署 | Render (后端) + Vercel (前端) |
+
+## 系统架构
+
+```
+                    用户
+                     │
+                     ▼
+           ┌─────────────────┐
+           │  React Frontend │  ← Vercel 部署
+           │  (Vite + SPA)   │
+           └────────┬────────┘
+                    │ REST API / SSE
+                    ▼
+           ┌─────────────────┐
+           │  FastAPI Backend│  ← Render 部署
+           └────────┬────────┘
+                    │
+          ┌─────────┼──────────┐
+          ▼         ▼          ▼
+      PostgreSQL  DeepSeek   本地文件存储
+       (Neon)      API       (uploads/)
+```
 
 ## 功能列表
 
-- 用户注册与登录（密码哈希存储，PBKDF2-SHA256）
-- JWT Token 认证（24 小时自动过期，HTTPBearer）
+- 邀请码注册（防止未授权用户注册）
+- 用户登录（JWT Token 认证，24 小时过期）
 - AI 智能对话（接入 DeepSeek API）
-- 多轮对话上下文（AI 能记住最近 10 轮聊天记录）
 - SSE 流式输出（逐字返回，类似 ChatGPT 效果）
-- RAG 检索增强生成（上传 PDF/Word 后，AI 基于文档内容回答问题）
-- 聊天记录存储与历史查询（仅可查看自己的记录）
-- 删除聊天记录（单条删除 / 全部清空）
-- 用户信息查询（GET /auth/me）
-- 文件上传与内容解析（PDF/Word 文字提取，UUID 重命名，关联用户）
-- 请求日志中间件（记录请求方法、路径、状态码、耗时）
+- 多轮对话上下文（最近 10 轮记忆）
+- RAG 检索增强（上传 PDF/Word 后，AI 基于文档内容回答）
+- 聊天记录持久化（PostgreSQL）
+- Token 用量追踪（记录每次请求的 prompt/completion tokens）
+- 管理员接口（查看所有用户及用量）
+- 文件上传与文字提取（PDF/Word）
+- 聊天记录删除（单条 / 全部清空）
+- 请求日志中间件
+- 移动端响应式布局
 - CORS 跨域支持
 
 ## API 接口
@@ -37,32 +67,35 @@
 | 方法 | 路径 | 说明 | 认证 |
 |------|------|------|------|
 | GET | `/health` | 健康检查 | 否 |
-| POST | `/auth/register` | 用户注册 | 否 |
-| POST | `/auth/login` | 用户登录，返回 JWT Token（24h 有效） | 否 |
-| GET | `/auth/me` | 获取当前用户信息 | 是 |
-| POST | `/chat` | AI 对话（一次性返回，支持多轮记忆 + RAG） | 是 |
-| POST | `/chat/stream` | AI 对话（SSE 流式输出，支持多轮记忆 + RAG） | 是 |
-| POST | `/chat/history` | 查询当前用户的聊天记录 | 是 |
-| DELETE | `/chat` | 清空当前用户的所有聊天记录 | 是 |
-| DELETE | `/chat/{message_id}` | 删除指定的一条聊天记录 | 是 |
-| POST | `/upload` | 文件上传（支持 PDF/Word，自动提取文字内容） | 是 |
+| POST | `/auth/register` | 用户注册（需邀请码） | 否 |
+| POST | `/auth/login` | 用户登录，返回 JWT Token | 否 |
+| GET | `/auth/me` | 获取当前用户信息及 Token 用量 | 是 |
+| GET | `/auth/admin/users` | 管理员查看所有用户（仅 user_id=1） | 是 |
+| POST | `/chat` | AI 对话（一次性返回） | 是 |
+| POST | `/chat/stream` | AI 对话（SSE 流式输出） | 是 |
+| POST | `/chat/history` | 查询聊天记录 | 是 |
+| DELETE | `/chat` | 清空所有聊天记录 | 是 |
+| DELETE | `/chat/{message_id}` | 删除指定聊天记录 | 是 |
+| POST | `/upload` | 文件上传（PDF/Word 文字提取） | 是 |
 
 ## 本地运行
 
-### 环境要求
-
-- Python 3.11+
-- pip
-
-### 安装与启动
+### 后端
 
 ```bash
-# 克隆项目
 git clone https://github.com/HYY142857/ai-chat-backend.git
 cd ai-chat-backend
 
+# 创建虚拟环境
+python -m venv .venv
+.venv\Scripts\activate       # Windows
+# source .venv/bin/activate  # macOS/Linux
+
 # 安装依赖
 pip install -r requirements.txt
+
+# 创建 .env 文件（参考 .env.example）
+cp .env.example .env
 
 # 启动服务
 uvicorn app.main:app --reload
@@ -70,107 +103,71 @@ uvicorn app.main:app --reload
 
 启动后访问 http://127.0.0.1:8000/docs 查看 API 文档。
 
-### Docker 运行
+### 前端
 
 ```bash
-# 构建镜像
-docker build -t ai-chat-backend .
+git clone https://github.com/HYY142857/ai-chat-frontend.git
+cd ai-chat-frontend
 
-# 运行容器
-docker run -p 8000:8000 ai-chat-backend
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
 ```
+
+## 环境变量
+
+参考 [.env.example](.env.example) 文件，在 Render 部署时需要在 Environment 中配置对应变量。
 
 ## 项目结构
 
 ```
 ai-chat-backend/
 ├── app/
-│   ├── main.py              # FastAPI 应用入口 + 中间件 + ORM 配置
+│   ├── main.py              # FastAPI 应用入口 + ORM 配置 + 中间件
 │   ├── routers/
-│   │   ├── auth.py          # 注册/登录/用户信息接口
-│   │   ├── chat.py          # 对话/历史/流式输出/删除接口
-│   │   └── upload.py        # 文件上传与内容解析接口
+│   │   ├── auth.py          # 注册/登录/用户信息/管理员接口
+│   │   ├── chat.py          # 对话/流式输出/历史/删除
+│   │   └── upload.py        # 文件上传与文字提取
 │   ├── models/
-│   │   ├── user.py          # 用户模型
-│   │   ├── chat_message.py  # 聊天记录模型
-│   │   └── file_record.py   # 文件记录模型（含提取的文字内容）
-│   ├── schemas/
-│   ├── services/
+│   │   ├── user.py          # 用户模型（含 total_tokens）
+│   │   ├── chat_message.py  # 聊天记录模型（含 token 用量）
+│   │   └── file_record.py   # 文件记录模型
 │   └── utils/
-│       └── auth.py          # 公共认证模块（JWT 校验）
-│       └── rag.py           # RAG 检索模块（文本切块 + 关键词匹配）
+│       ├── auth.py          # JWT 认证模块
+│       └── rag.py           # RAG 检索模块
 ├── uploads/                  # 上传文件存储目录
 ├── Dockerfile
 ├── requirements.txt
+├── .env.example
 └── README.md
 ```
 
-## RAG 工作流程
+## 数据库 ER 图
 
 ```
-用户上传 PDF/Word
-    ↓
-提取文字内容（PyPDF2 / python-docx）
-    ↓
-存入数据库（FileRecord.content）
-    ↓
-用户提问
-    ↓
-从用户上传的文档中检索相关文本片段
-    ↓
-将相关片段作为上下文 + 用户问题一起发给 DeepSeek
-    ↓
-AI 基于文档内容回答
+┌──────────────┐       ┌──────────────────┐       ┌──────────────────┐
+│    users     │       │  chat_messages   │       │   file_records   │
+├──────────────┤       ├──────────────────┤       ├──────────────────┤
+│ id (PK)      │──┐    │ id (PK)          │       │ id (PK)          │
+│ username     │  │    │ user_id (FK)     │       │ user_id (FK)     │
+│ password     │  ├───<│ message          │  ┌────│ original_name    │
+│ total_tokens │  │    │ reply            │  │    │ saved_name       │
+│ created_at   │  │    │ prompt_tokens    │  │    │ file_size        │
+└──────────────┘  │    │ completion_tokens│  │    │ content          │
+                  │    │ created_at       │  │    │ created_at       │
+                  │    └──────────────────┘  │    └──────────────────┘
+                  │                          │
+                  └──────────────────────────┘
 ```
 
 ## 部署
 
-项目使用 Docker 容器化，已部署至 Render 云平台。
-
-- Docker Hub 镜像：`hyy1119/ai-chat-backend:latest`
-- 在线地址：https://ai-chat-backend-be6s.onrender.com
-
-## 使用示例
-
-### 注册
-
-```bash
-curl -X POST https://ai-chat-backend-be6s.onrender.com/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username": "test", "password": "123456"}'
-```
-
-### 登录
-
-```bash
-curl -X POST https://ai-chat-backend-be6s.onrender.com/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "test", "password": "123456"}'
-```
-
-### AI 对话（需携带 Token）
-
-```bash
-curl -X POST https://ai-chat-backend-be6s.onrender.com/chat \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <your_token>" \
-  -d '{"message": "你好"}'
-```
-
-### 上传文件 + 基于文档提问
-
-```bash
-# 上传 PDF
-curl -X POST https://ai-chat-backend-be6s.onrender.com/upload \
-  -H "Authorization: Bearer <your_token>" \
-  -F "file=@document.pdf"
-
-# 基于文档内容提问
-curl -X POST https://ai-chat-backend-be6s.onrender.com/chat \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <your_token>" \
-  -d '{"message": "这份文档讲了什么？"}'
-```
+- **后端**：Render (https://ai-chat-backend-be6s.onrender.com)
+- **前端**：Vercel (https://ai-chat-frontend-lilac.vercel.app)
+- **数据库**：Neon PostgreSQL（免费 0.5GB）
+- **容器化**：Docker 镜像 `hyy1119/ai-chat-backend:latest`
 
 ## License
 
