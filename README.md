@@ -6,6 +6,24 @@
 
 **API 文档**：https://ai-chat-backend-be6s.onrender.com/docs
 
+## 项目截图
+
+**桌面端**
+
+| 注册页面（邀请码制） | 登录页面 |
+|:---:|:---:|
+| ![注册页面](docs/register.png) | ![登录页面](docs/login.png) |
+
+**AI 对话界面（SSE 流式输出）**
+
+![对话界面](docs/chat.png)
+
+**移动端**
+
+| 登录 | 对话 |
+|:---:|:---:|
+| ![移动端登录](docs/mobile-login.jpg) | ![移动端对话](docs/mobile-chat.jpg) |
+
 ## 技术栈
 
 | 层级 | 技术 |
