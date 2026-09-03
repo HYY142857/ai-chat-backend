@@ -5,6 +5,7 @@ from PyPDF2 import PdfReader
 from docx import Document
 from app.models.file_record import FileRecord
 from app.utils.auth import get_current_user
+from openpyxl import load_workbook
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
@@ -33,8 +34,20 @@ def extract_text(file_content: bytes, filename: str) -> str:
             text += paragraph.text + "\n"
         return text
 
+    elif ext in ("xlsx", "xls"):
+        wb = load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
+        text = ""
+        for sheet in wb.sheetnames:
+            ws = wb[sheet]
+            for row in ws.iter_rows(values_only=True):
+                for cell in row:
+                    if cell is not None:
+                        text += str(cell) + " "
+                text += "\n"
+        return text
+    
     else:
-        return ""  # 不支持的文件类型，返回空
+        raise ValueError(f"不支持的文件格式：.{ext}，目前支持 PDF、Word(.docx)、Excel(.xlsx)")
 
 
 @router.post("", response_model=UploadResponse)
@@ -51,7 +64,12 @@ async def upload(file: UploadFile = File(...),user_id: int = Depends(get_current
         f.write(content)
 
     # 提取文件内容
-    text = extract_text(content, file.filename)
+    try:
+        text = extract_text(content, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="文件解析失败，请确认文件未损坏")
 
     # 存到数据库
     await FileRecord.create(
@@ -62,4 +80,4 @@ async def upload(file: UploadFile = File(...),user_id: int = Depends(get_current
         content=text
     )
 
-    return {"filename": safe_name, "size": len(content)}
+    return {"filename": file.filename, "size": len(content)}
