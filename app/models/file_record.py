@@ -1,5 +1,6 @@
 from tortoise import fields, Model
 
+
 class FileRecord(Model):
     id = fields.IntField(pk=True)
     user = fields.ForeignKeyField("models.User", related_name="file_records")  # 外键，指向 User
@@ -8,6 +9,7 @@ class FileRecord(Model):
     file_size = fields.IntField()                         # 文件大小（字节）
     content = fields.TextField(null=True)                 # 提取出来的文字内容
     created_at = fields.DatetimeField(auto_now_add=True)
+    rag_used = fields.BooleanField(default=False)
 
     class Meta:
         table = "file_records"  # 表名
