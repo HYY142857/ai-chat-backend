@@ -47,7 +47,7 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     messages.append({"role": "user", "content": req.message})
 
     # 查出这个用户上传的所有文件
-    files = await FileRecord.filter(user_id=user_id).all()
+    files = await FileRecord.filter(user_id=user_id).order_by("-created_at").limit(3).all()
     documents = [{"content": f.content} for f in files if f.content]
 
     # 检索相关片段
@@ -112,7 +112,7 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
         messages.append({"role": "assistant", "content": record.reply})
 
     # 查出这个用户上传的所有文件
-    files = await FileRecord.filter(user_id=user_id).all()
+    files = await FileRecord.filter(user_id=user_id).order_by("-created_at").limit(3).all()
     documents = [{"content": f.content} for f in files if f.content]
 
     # 检索相关片段
