@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from app.models.user import User
 from app.models.chat_message import ChatMessage
 from app.models.file_record import FileRecord
+from datetime import datetime, timedelta
 from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
 from app.utils.auth import get_current_user
@@ -46,8 +47,9 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})
 
-    # 查出这个用户上传的所有文件
-    files = await FileRecord.filter(user_id=user_id).order_by("-created_at").limit(3).all()
+    # 只检索最近 1 小时内上传的文件
+    one_hour_ago = datetime.now() - timedelta(hours=1)
+    files = await FileRecord.filter(user_id=user_id, created_at__gte=one_hour_ago).order_by("-created_at").all()
     documents = [{"content": f.content} for f in files if f.content]
 
     # 检索相关片段
@@ -111,8 +113,9 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
         messages.append({"role": "user", "content": record.message})
         messages.append({"role": "assistant", "content": record.reply})
 
-    # 查出这个用户上传的所有文件
-    files = await FileRecord.filter(user_id=user_id).order_by("-created_at").limit(3).all()
+    # 只检索最近 1 小时内上传的文件
+    one_hour_ago = datetime.now() - timedelta(hours=1)
+    files = await FileRecord.filter(user_id=user_id, created_at__gte=one_hour_ago).order_by("-created_at").all()
     documents = [{"content": f.content} for f in files if f.content]
 
     # 检索相关片段
