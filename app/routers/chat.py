@@ -45,7 +45,7 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})
 
-    files = await FileRecord.filter(user_id=user_id).all()
+    files = await FileRecord.filter(user_id=user_id, rag_used=False).all()
     file_contexts = []
     for f in files:
         if f.content:
@@ -57,6 +57,9 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
             "role": "system",
             "content": f"以下是用户上传的文件内容，请基于这些内容回答用户的问题。\n\n{context}"
         })
+        for f in files:
+            f.rag_used = True
+            await f.save()
 
     # 调用 DeepSeek API
     response = await client.chat.completions.create(
@@ -108,11 +111,9 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
         messages.append({"role": "user", "content": record.message})
         messages.append({"role": "assistant", "content": record.reply})
 
-    files = await FileRecord.filter(user_id=user_id).all()
-    print(f"[DEBUG] user_id={user_id}, 找到 {len(files)} 个文件", flush=True)
+    files = await FileRecord.filter(user_id=user_id, rag_used=False).all()
     file_contexts = []
     for f in files:
-        print(f"[DEBUG] 文件: {f.original_name}, content长度: {len(f.content) if f.content else '空'}", flush=True)
         if f.content:
             file_contexts.append(f"【文件：{f.original_name}】\n{f.content[:3000]}")
 
@@ -122,6 +123,9 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
             "role": "system",
             "content": f"以下是用户上传的文件内容，请基于这些内容回答用户的问题。\n\n{context}"
         })
+        for f in files:
+            f.rag_used = True
+            await f.save()
 
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})
