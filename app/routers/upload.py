@@ -73,6 +73,9 @@ async def upload(file: UploadFile = File(...),user_id: int = Depends(get_current
     except Exception:
         raise HTTPException(status_code=400, detail="文件解析失败，请确认文件未损坏")
 
+    # 把旧文件标记为已使用，只有新上传的文件会被引用
+    await FileRecord.filter(user_id=user_id, rag_used=False).update(rag_used=True)
+
     # 存到数据库
     await FileRecord.create(
         user_id=user_id,
