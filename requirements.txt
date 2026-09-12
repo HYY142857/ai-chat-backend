@@ -7,7 +7,7 @@ passlib
 openai
 pyjwt
 asyncpg
-PyPDF2
+pdfplumber
 python-docx
 python-dotenv
 openpyxl

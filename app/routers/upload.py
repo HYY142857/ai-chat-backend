@@ -1,7 +1,7 @@
 import os,uuid,io
 from fastapi import APIRouter, UploadFile, File, HTTPException,Depends
 from pydantic import BaseModel
-from PyPDF2 import PdfReader
+import pdfplumber
 from docx import Document
 from app.models.file_record import FileRecord
 from app.utils.auth import get_current_user
@@ -21,10 +21,12 @@ def extract_text(file_content: bytes, filename: str) -> str:
     ext = filename.lower().split(".")[-1]
 
     if ext == "pdf":
-        reader = PdfReader(io.BytesIO(file_content))
         text = ""
-        for page in reader.pages:
-            text += page.extract_text() or ""
+        with pdfplumber.open(io.BytesIO(file_content)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
         return text
 
     elif ext == "docx":
