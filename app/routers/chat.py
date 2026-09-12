@@ -154,14 +154,22 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
                 yield f"data: {piece}\n\n"  # SSE 格式
 
         # 流结束后存数据库
+        try:
+            prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+            completion_tokens = response.usage.completion_tokens if response.usage else 0
+        except AttributeError:
+            prompt_tokens = 0
+            completion_tokens = 0
+
         await ChatMessage.create(user=user, 
                                  message=req.message, 
                                  reply=full_reply,
-                                 prompt_tokens=response.usage.prompt_tokens, 
-                                 completion_tokens=response.usage.completion_tokens
+                                 prompt_tokens=prompt_tokens, 
+                                 completion_tokens=completion_tokens
                                 )
-        user.total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
-        await user.save()
+        if prompt_tokens or completion_tokens:
+            user.total_tokens += prompt_tokens + completion_tokens
+            await user.save()
         yield "data: [DONE]\n\n"  # 告诉前端结束了
 
     return StreamingResponse(generate(), media_type="text/event-stream")
