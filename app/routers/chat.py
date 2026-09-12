@@ -109,8 +109,10 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
         messages.append({"role": "assistant", "content": record.reply})
 
     files = await FileRecord.filter(user_id=user_id).all()
+    print(f"[DEBUG] user_id={user_id}, 找到 {len(files)} 个文件", flush=True)
     file_contexts = []
     for f in files:
+        print(f"[DEBUG] 文件: {f.original_name}, content长度: {len(f.content) if f.content else '空'}", flush=True)
         if f.content:
             file_contexts.append(f"【文件：{f.original_name}】\n{f.content[:3000]}")
 
