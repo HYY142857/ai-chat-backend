@@ -6,7 +6,6 @@ from app.models.file_record import FileRecord
 from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
 from app.utils.auth import get_current_user
-from app.utils.rag import retrieve_relevant_chunks
 import os
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -46,24 +45,21 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})
 
-    files=await FileRecord.filter(user_id=user_id,rag_used=False).all()
-    documents = [{"content": f.content} for f in files if f.content]
+    files = await FileRecord.filter(user_id=user_id, rag_used=False).all()
+    file_contexts = []
+    for f in files:
+        if f.content:
+            file_contexts.append(f"【文件：{f.original_name}】\n{f.content[:3000]}")
 
-    # 检索相关片段
-    relevant_chunks = retrieve_relevant_chunks(req.message, documents)
-    # 标记这些文件已被引用，下次不再使用
-    if files:
+    if file_contexts:
+        context = "\n\n".join(file_contexts)
+        messages.insert(0, {
+            "role": "system",
+            "content": f"以下是用户上传的文件内容，请基于这些内容回答用户的问题。\n\n{context}"
+        })
         for f in files:
             f.rag_used = True
             await f.save()
-
-    # 如果找到相关内容，加一个 system message 告诉 AI
-    if relevant_chunks:
-        context = "\n---\n".join(relevant_chunks)
-        messages.insert(0, {
-            "role": "system",
-            "content": f"以下是用户上传的参考资料，请基于这些内容回答用户的问题。如果资料中没有相关信息，请说明。\n\n参考资料：\n{context}"
-        })
 
     # 调用 DeepSeek API
     response = await client.chat.completions.create(
@@ -115,24 +111,21 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
         messages.append({"role": "user", "content": record.message})
         messages.append({"role": "assistant", "content": record.reply})
 
-    files=await FileRecord.filter(user_id=user_id,rag_used=False).all()
-    documents = [{"content": f.content} for f in files if f.content]
+    files = await FileRecord.filter(user_id=user_id, rag_used=False).all()
+    file_contexts = []
+    for f in files:
+        if f.content:
+            file_contexts.append(f"【文件：{f.original_name}】\n{f.content[:3000]}")
 
-    # 检索相关片段
-    relevant_chunks = retrieve_relevant_chunks(req.message, documents)
-    # 标记这些文件已被引用，下次不再使用
-    if files:
+    if file_contexts:
+        context = "\n\n".join(file_contexts)
+        messages.insert(0, {
+            "role": "system",
+            "content": f"以下是用户上传的文件内容，请基于这些内容回答用户的问题。\n\n{context}"
+        })
         for f in files:
             f.rag_used = True
             await f.save()
-            
-    # 如果找到相关内容，加一个 system message 告诉 AI
-    if relevant_chunks:
-        context = "\n---\n".join(relevant_chunks)
-        messages.insert(0, {
-            "role": "system",
-            "content": f"以下是用户上传的参考资料，请基于这些内容回答用户的问题。如果资料中没有相关信息，请说明。\n\n参考资料：\n{context}"
-        })
 
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})
