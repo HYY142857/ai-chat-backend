@@ -6,6 +6,7 @@ from docx import Document
 from app.models.file_record import FileRecord
 from app.utils.auth import get_current_user
 from openpyxl import load_workbook
+from app.utils.ocr import extract_text_from_image
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
@@ -47,9 +48,13 @@ def extract_text(file_content: bytes, filename: str) -> str:
                         text += str(cell) + " "
                 text += "\n"
         return text
+
+    elif ext in ("jpg", "jpeg", "png"):
+        image_text = extract_text_from_image(file_content)
+        return image_text
     
     else:
-        raise ValueError(f"不支持的文件格式：.{ext}，目前支持 PDF、Word(.docx)、Excel(.xlsx)")
+        raise ValueError(f"不支持的文件格式：.{ext}，目前支持 PDF、Word(.docx)、Excel(.xlsx)、图片(.jpg .png .jpeg)")
 
 
 @router.post("", response_model=UploadResponse)
