@@ -11,7 +11,4 @@ pdfplumber
 python-docx
 python-dotenv
 openpyxl
-paddleocr 
-paddlepaddle
-pillow
-numpy
+requests
