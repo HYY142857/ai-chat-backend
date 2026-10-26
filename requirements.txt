@@ -12,3 +12,4 @@ python-docx
 python-dotenv
 openpyxl
 requests
+chromadb

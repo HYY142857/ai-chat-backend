@@ -45,21 +45,21 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})
 
-    files = await FileRecord.filter(user_id=user_id, rag_used=False).all()
-    file_contexts = []
-    for f in files:
-        if f.content:
-            file_contexts.append(f"【文件：{f.original_name}】\n{f.content[:3000]}")
+    # 向量检索：从 ChromaDB 找跟问题最相关的片段
+    from app.utils.rag import retrieve_relevant_chunks, build_context_prompt
+    relevant_chunks = retrieve_relevant_chunks(req.message, user_id, top_k=5)
+    context = build_context_prompt(relevant_chunks)
 
-    if file_contexts:
-        context = "\n\n".join(file_contexts)
+    if context:
         messages.insert(0, {
             "role": "system",
-            "content": f"以下是用户上传的文件内容，请基于这些内容回答用户的问题。\n\n{context}"
+            "content": (
+                "以下是从用户上传的文件中检索到的相关内容，"
+                "请严格基于这些内容回答用户的问题，不要编造。"
+                "如果检索内容里没有答案，就说'在上传的文件中没有找到相关信息'。\n\n"
+                f"{context}"
+            )
         })
-        for f in files:
-            f.rag_used = True
-            await f.save()
 
     # 调用 DeepSeek API
     response = await client.chat.completions.create(
@@ -111,21 +111,21 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
         messages.append({"role": "user", "content": record.message})
         messages.append({"role": "assistant", "content": record.reply})
 
-    files = await FileRecord.filter(user_id=user_id, rag_used=False).all()
-    file_contexts = []
-    for f in files:
-        if f.content:
-            file_contexts.append(f"【文件：{f.original_name}】\n{f.content[:3000]}")
+    # 向量检索：从 ChromaDB 找跟问题最相关的片段
+    from app.utils.rag import retrieve_relevant_chunks, build_context_prompt
+    relevant_chunks = retrieve_relevant_chunks(req.message, user_id, top_k=5)
+    context = build_context_prompt(relevant_chunks)
 
-    if file_contexts:
-        context = "\n\n".join(file_contexts)
+    if context:
         messages.insert(0, {
             "role": "system",
-            "content": f"以下是用户上传的文件内容，请基于这些内容回答用户的问题。\n\n{context}"
+            "content": (
+                "以下是从用户上传的文件中检索到的相关内容，"
+                "请严格基于这些内容回答用户的问题，不要编造。"
+                "如果检索内容里没有答案，就说'在上传的文件中没有找到相关信息'。\n\n"
+                f"{context}"
+            )
         })
-        for f in files:
-            f.rag_used = True
-            await f.save()
 
     # 加上当前这条消息
     messages.append({"role": "user", "content": req.message})

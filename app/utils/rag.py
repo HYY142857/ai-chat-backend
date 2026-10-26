@@ -1,28 +1,50 @@
-def chunk_text(text: str, chunk_size: int = 500) -> list:
-    """把长文本切成小块"""
+from app.utils.vector_store import search_documents
+
+
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list:
+    """
+    把长文本切成小块，带 overlap 避免边界信息丢失
+    """
     chunks = []
-    for i in range(0, len(text), chunk_size):
-        chunks.append(text[i:i + chunk_size])
+    for i in range(0, len(text), chunk_size - overlap):
+        chunk = text[i:i + chunk_size]
+        if chunk.strip():
+            chunks.append(chunk)
     return chunks
 
-def retrieve_relevant_chunks(query: str, documents: list) -> list:
-    """从文档列表中找出跟 query 最相关的片段"""
 
-    # 去掉常见的无意义字符
-    stop_chars = set("的了是在我你他她它们这个那些什么吗呢吧啊哦？！，。、：； ")
-    keywords = [ch for ch in query if ch not in stop_chars and ch.strip()]
+def retrieve_relevant_chunks(query: str, user_id: int, top_k: int = 5) -> list:
+    """
+    从向量数据库中找出跟 query 最相关的片段
+    返回：[{"chunk": "...", "score": 0.xx, "filename": "..."}]
+    """
+    results = search_documents(user_id, query, top_k=top_k)
 
-    if len(keywords) < 4:
-        return []  # 问题太短，不做 RAG 检索
+    # 过滤掉相似度太低的（低于 0.3 认为不相关）
+    filtered = [r for r in results if r["score"] >= 0.3]
 
-    scored_chunks = []
-    for doc in documents:
-        chunks = chunk_text(doc["content"])
-        for chunk in chunks:
-            score = sum(1 for kw in keywords if kw in chunk)
-            # 至少匹配 5 个关键词，且匹配率 >= 50%
-            if score >= 5 and score / len(keywords) >= 0.5:
-                scored_chunks.append({"chunk": chunk, "score": score})
+    return filtered
 
-    scored_chunks.sort(key=lambda x: x["score"], reverse=True)
-    return [item["chunk"] for item in scored_chunks[:5]]
+
+def build_context_prompt(relevant_chunks: list) -> str:
+    """
+    把检索到的相关片段拼成 RAG 的上下文 prompt
+    """
+    if not relevant_chunks:
+        return ""
+
+    # 按文件分组
+    file_chunks = {}
+    for item in relevant_chunks:
+        fname = item["filename"]
+        if fname not in file_chunks:
+            file_chunks[fname] = []
+        file_chunks[fname].append(item["chunk"])
+
+    # 拼接
+    parts = []
+    for fname, chunks in file_chunks.items():
+        content = "\n\n".join(chunks)
+        parts.append(f"【文件：{fname}】\n{content}")
+
+    return "\n\n".join(parts)

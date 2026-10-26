@@ -78,16 +78,25 @@ async def upload(file: UploadFile = File(...),user_id: int = Depends(get_current
     except Exception:
         raise HTTPException(status_code=400, detail="文件解析失败，请确认文件未损坏")
 
-    # 把旧文件标记为已使用，只有新上传的文件会被引用
-    await FileRecord.filter(user_id=user_id, rag_used=False).update(rag_used=True)
-
     # 存到数据库
-    await FileRecord.create(
+    file_record = await FileRecord.create(
         user_id=user_id,
         original_name=file.filename,
         saved_name=safe_name,
         file_size=len(content),
         content=text
     )
+
+    # 存入向量数据库（RAG 语义检索用）
+    if text:
+        from app.utils.rag import chunk_text
+        from app.utils.vector_store import add_documents
+        chunks = chunk_text(text)
+        add_documents(
+            user_id=user_id,
+            file_id=file_record.id,
+            filename=file.filename,
+            chunks=chunks
+        )
 
     return {"filename": file.filename, "size": len(content)}
