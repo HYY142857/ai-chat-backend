@@ -37,7 +37,7 @@ TORTOISE_ORM: Dict = {
     },
     "apps": {
         "models": {
-            "models": ["app.models.user", "app.models.chat_message","app.models.file_record", "aerich.models"],  # 模型模块和 Aerich 迁移模型
+            "models": ["app.models.user", "app.models.chat_message","app.models.conversation","app.models.file_record", "aerich.models"],  # 模型模块和 Aerich 迁移模型
             "default_connection": "default",
         }
     },

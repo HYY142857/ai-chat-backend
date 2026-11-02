@@ -2,6 +2,7 @@ from fastapi import APIRouter,Depends, HTTPException
 from pydantic import BaseModel
 from app.models.user import User
 from app.models.chat_message import ChatMessage
+from app.models.conversation import Conversation
 from app.models.file_record import FileRecord
 from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
@@ -10,9 +11,43 @@ import os
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
+# 新建会话
+@router.post("/conversations", response_model=dict)
+async def create_conversation(user_id: int = Depends(get_current_user)):
+    user = await User.filter(id=user_id).first()
+    conv = await Conversation.create(user=user)
+    return {"id": conv.id, "title": conv.title, "created_at": str(conv.created_at)}
+
+# 获取会话列表
+@router.get("/conversations")
+async def list_conversations(user_id: int = Depends(get_current_user)):
+    convs = await Conversation.filter(user_id=user_id).order_by("-updated_at")
+    result = []
+    for c in convs:
+        # 取这个会话第一条消息作为预览
+        first_msg = await ChatMessage.filter(conversation_id=c.id).order_by("created_at").first()
+        preview = first_msg.message if first_msg else "(空会话)"
+        result.append({
+            "id": c.id,
+            "title": c.title,
+            "preview": preview[:30],  # 前 30 字作为左侧预览
+            "created_at": str(c.created_at),
+        })
+    return {"conversations": result}
+
+# 删除会话（连带删除该会话所有消息）
+@router.delete("/conversations/{conv_id}")
+async def delete_conversation(conv_id: int, user_id: int = Depends(get_current_user)):
+    conv = await Conversation.filter(id=conv_id, user_id=user_id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    await ChatMessage.filter(conversation_id=conv_id).delete()
+    await conv.delete()
+    return {"message": "会话已删除"}
 
 class ChatRequest(BaseModel):
     message: str
+    conversation_id: int | None = None  # 可选，如果不传就不关联会话  
 
 
 class ChatResponse(BaseModel):
@@ -33,9 +68,24 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
     # 查出这个用户
     user = await User.filter(id=user_id).first()
 
-    # 查出最近 10 条聊天记录（倒序，最新的在后面）
-    history = await ChatMessage.filter(user_id=user_id).order_by("-created_at").limit(10)
-    history = list(reversed(history))  # 加上这行，变成正序
+     # 处理会话：有 conversation_id 就用，没有就新建
+    if req.conversation_id:
+        conversation = await Conversation.filter(id=req.conversation_id, user_id=user_id).first()
+        if not conversation:
+            raise HTTPException(status_code=404, detail="会话不存在")
+    else:
+        # 新建一个会话，标题用第一条消息前 20 字
+        conversation = await Conversation.create(
+            user=user,
+            title=req.message[:20]
+        )
+
+    # 关键改动：查历史只查这个会话的，不再查所有消息
+    history = await ChatMessage.filter(
+        conversation_id=conversation.id
+    ).order_by("-created_at").limit(10)
+    history = list(reversed(history))
+    
     # 拼成 messages 数组
     messages = []
     for record in history:
@@ -71,6 +121,7 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
 
     # 存进数据库
     await ChatMessage.create(user=user, 
+                             conversation=conversation,
                              message=req.message, 
                              reply=reply_text, 
                              prompt_tokens=response.usage.prompt_tokens, 
@@ -78,32 +129,49 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
                             )
     user.total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
     await user.save()
+    await conversation.save()  # 直接 save，updated_at 会自动更新
 
-    return {"reply": reply_text}
+    return {"reply": reply_text,"conversation_id": conversation.id}
 
-@router.post("/history")
-async def history(user_id: int = Depends(get_current_user)):
-    # 查出这个用户的所有聊天记录
-    records = await ChatMessage.filter(user_id=user_id).order_by("created_at")
+@router.get("/conversations/{conv_id}/messages")
+async def get_conversation_messages(conv_id: int, user_id: int = Depends(get_current_user)):
+    # 确认会话属于这个用户
+    conv = await Conversation.filter(id=conv_id, user_id=user_id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话不存在")
 
-    # 把每条记录整理成字典返回
+    records = await ChatMessage.filter(conversation_id=conv_id).order_by("created_at")
     result = []
     for r in records:
         result.append({
+            "id": r.id,
             "message": r.message,
             "reply": r.reply,
             "created_at": str(r.created_at),
         })
-
     return {"messages": result}
 
 @router.post("/stream")
 async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)):
     user = await User.filter(id=user_id).first()
 
-    # 查出最近 10 条聊天记录（倒序，最新的在后面）
-    history = await ChatMessage.filter(user_id=user_id).order_by("-created_at").limit(10)
-    history = list(reversed(history))  # 加上这行，变成正序
+     # 处理会话：有 conversation_id 就用，没有就新建
+    if req.conversation_id:
+        conversation = await Conversation.filter(id=req.conversation_id, user_id=user_id).first()
+        if not conversation:
+            raise HTTPException(status_code=404, detail="会话不存在")
+    else:
+        # 新建一个会话，标题用第一条消息前 20 字
+        conversation = await Conversation.create(
+            user=user,
+            title=req.message[:20]
+        )
+
+    # 关键改动：查历史只查这个会话的，不再查所有消息
+    history = await ChatMessage.filter(
+        conversation_id=conversation.id
+    ).order_by("-created_at").limit(10)
+    history = list(reversed(history))
 
     # 拼成 messages 数组
     messages = []
@@ -156,6 +224,7 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
 
         await ChatMessage.create(user=user, 
                                  message=req.message, 
+                                 conversation=conversation,
                                  reply=full_reply,
                                  prompt_tokens=prompt_tokens, 
                                  completion_tokens=completion_tokens
@@ -165,7 +234,7 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
             await user.save()
         yield "data: [DONE]\n\n"  # 告诉前端结束了
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={"conversation_id": str(conversation.id)})
 
 @router.delete("/{message_id}")
 async def delete_message(message_id: int, user_id: int = Depends(get_current_user)):
