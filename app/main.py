@@ -52,7 +52,54 @@ register_tortoise(app,
                   add_exception_handlers=True  # 添加默认异常处理
                   )
 
+# === 自动补全缺失的表和列（解决 Render 免费版不能手动 ALTER 的问题） ===
+import sqlite3
+import os as _os
 
+def _migrate_sqlite():
+    """检查 SQLite 数据库，补全 conversations 表和 chat_messages.conversation_id 列"""
+    # 解析 db_url（"sqlite://db.sqlite3" → "db.sqlite3"）
+    raw = db_url  # 第 31 行已经定义过这个变量了
+    if raw.startswith("sqlite://"):
+        db_path = raw[len("sqlite://"):]
+    else:
+        return  # 不是 SQLite（比如 Render 上的 PostgreSQL），跳过
+
+    if not _os.path.exists(db_path):
+        return  # 数据库文件还不存在，让 generate_schemas=True 去建就行
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+
+        # 1. 检查 conversations 表
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'")
+        if not cur.fetchone():
+            cur.execute("""
+                CREATE TABLE conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER REFERENCES users(id),
+                    title VARCHAR(100) DEFAULT '新对话',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            print("[DB] 自动创建 conversations 表", flush=True)
+
+        # 2. 检查 chat_messages 有没有 conversation_id 列
+        cur.execute("PRAGMA table_info(chat_messages)")
+        cols = [r[1] for r in cur.fetchall()]
+        if "conversation_id" not in cols:
+            cur.execute("ALTER TABLE chat_messages ADD COLUMN conversation_id INTEGER REFERENCES conversations(id)")
+            print("[DB] 给 chat_messages 加 conversation_id 列", flush=True)
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] 迁移失败（可以忽略）: {e}", flush=True)
+
+_migrate_sqlite()
+# === 迁移结束 ===
 
 @app.get("/health", tags=["Health"])
 async def health():
