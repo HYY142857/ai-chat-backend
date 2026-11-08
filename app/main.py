@@ -56,51 +56,98 @@ register_tortoise(app,
 import sqlite3
 import os as _os
 
-def _migrate_sqlite():
-    """检查 SQLite 数据库，补全 conversations 表和 chat_messages.conversation_id 列"""
-    # 解析 db_url（"sqlite://db.sqlite3" → "db.sqlite3"）
-    raw = db_url  # 第 31 行已经定义过这个变量了
-    if raw.startswith("sqlite://"):
-        db_path = raw[len("sqlite://"):]
-    else:
-        return  # 不是 SQLite（比如 Render 上的 PostgreSQL），跳过
+# === 自动补全缺失的表和列（同时支持 SQLite 和 PostgreSQL） ===
+import os as _os
 
-    if not _os.path.exists(db_path):
-        return  # 数据库文件还不存在，让 generate_schemas=True 去建就行
+def _migrate_db():
+    """检查数据库，补全 conversations 表和 chat_messages.conversation_id 列"""
+    raw = db_url  # 你 main.py 里已经定义好了
+
+    if raw.startswith("sqlite://"):
+        backend = "sqlite"
+        db_path = raw[len("sqlite://"):]
+        if not _os.path.exists(db_path):
+            print("[DB] SQLite 文件不存在，跳过迁移（让 generate_schemas 去建）", flush=True)
+            return
+    elif raw.startswith("postgres://") or raw.startswith("postgresql://"):
+        backend = "postgres"
+    else:
+        print(f"[DB] 未知的数据库类型，跳过迁移: {raw}", flush=True)
+        return
 
     try:
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
+        if backend == "sqlite":
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
 
-        # 1. 检查 conversations 表
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'")
-        if not cur.fetchone():
-            cur.execute("""
-                CREATE TABLE conversations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER REFERENCES users(id),
-                    title VARCHAR(100) DEFAULT '新对话',
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            # 1. 检查 conversations 表
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'")
+            if not cur.fetchone():
+                cur.execute("""
+                    CREATE TABLE conversations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER REFERENCES users(id),
+                        title VARCHAR(100) DEFAULT '新对话',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                print("[DB] SQLite: 自动创建 conversations 表", flush=True)
+
+            # 2. 检查 conversation_id 列
+            cur.execute("PRAGMA table_info(chat_messages)")
+            cols = [r[1] for r in cur.fetchall()]
+            if "conversation_id" not in cols:
+                cur.execute("ALTER TABLE chat_messages ADD COLUMN conversation_id INTEGER REFERENCES conversations(id)")
+                print("[DB] SQLite: 给 chat_messages 加 conversation_id 列", flush=True)
+
+            conn.commit()
+            conn.close()
+
+        else:  # PostgreSQL
+            import asyncio
+            import asyncpg
+
+            async def pg_migrate():
+                conn = await asyncpg.connect(raw)
+
+                # 1. 检查 conversations 表
+                exists = await conn.fetchval(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'conversations')"
                 )
-            """)
-            print("[DB] 自动创建 conversations 表", flush=True)
+                if not exists:
+                    await conn.execute("""
+                        CREATE TABLE conversations (
+                            id SERIAL PRIMARY KEY,
+                            user_id INT REFERENCES users(id),
+                            title VARCHAR(100) DEFAULT '新对话',
+                            created_at TIMESTAMP DEFAULT NOW(),
+                            updated_at TIMESTAMP DEFAULT NOW()
+                        )
+                    """)
+                    print("[DB] PostgreSQL: 自动创建 conversations 表", flush=True)
 
-        # 2. 检查 chat_messages 有没有 conversation_id 列
-        cur.execute("PRAGMA table_info(chat_messages)")
-        cols = [r[1] for r in cur.fetchall()]
-        if "conversation_id" not in cols:
-            cur.execute("ALTER TABLE chat_messages ADD COLUMN conversation_id INTEGER REFERENCES conversations(id)")
-            print("[DB] 给 chat_messages 加 conversation_id 列", flush=True)
+                # 2. 检查 conversation_id 列
+                cols = await conn.fetch(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'chat_messages'"
+                )
+                col_names = [r["column_name"] for r in cols]
+                if "conversation_id" not in col_names:
+                    await conn.execute(
+                        "ALTER TABLE chat_messages ADD COLUMN conversation_id INT REFERENCES conversations(id)"
+                    )
+                    print("[DB] PostgreSQL: 给 chat_messages 加 conversation_id 列", flush=True)
 
-        conn.commit()
-        conn.close()
+                await conn.close()
+
+            asyncio.run(pg_migrate())
+
     except Exception as e:
         print(f"[DB] 迁移失败（可以忽略）: {e}", flush=True)
 
-_migrate_sqlite()
+_migrate_db()
 # === 迁移结束 ===
-
 @app.get("/health", tags=["Health"])
 async def health():
     return {"status": "ok"}
