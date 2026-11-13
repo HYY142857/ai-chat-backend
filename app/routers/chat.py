@@ -8,7 +8,6 @@ from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
 from app.utils.auth import get_current_user
 import os
-import re
 import asyncio
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -18,63 +17,56 @@ async def summarise_title(client, conversation, user_first_message: str, assista
     同步：让 LLM 总结对话标题，更新 Conversation.title
     """
     try:
-        # 只取 AI 回复的前 200 字，避免太长影响标题生成
-        reply_preview = assistant_first_reply[:200]
-        
         response = await client.chat.completions.create(
             model="deepseek-chat",
             messages=[
                 {
                     "role": "system",
-                    "content": "你是一个简洁的中文标题生成器。请根据用户的第一条消息，生成一个 5-12 字的中文标题，概括对话主题。只输出标题本身，不要加引号、逗号、句号、换行或任何解释。标题必须全是中文。"
+                    "content": (
+                        "你是一个对话标题生成器。根据用户的第一条消息，"
+                        "生成一个 5-15 字的标题概括对话主题。\n"
+                        "规则：\n"
+                        "1. 只输出标题，不要任何其他内容\n"
+                        "2. 不要加引号、句号、换行\n"
+                        "3. 可以包含常见英文缩写（如 GPT、CPU、iOS 等），但不要输出英文单词后缀\n"
+                        "4. 直接输出标题，别让我再处理你的输出\n"
+                        "例子：\n"
+                        "用户消息：洋葱浏览器区别于其他浏览器的地方在于？\n"
+                        "标题：洋葱浏览器与普通浏览器的核心区别\n\n"
+                        "用户消息：GPT-4 和 Claude 哪个更强？\n"
+                        "标题：GPT-4 与 Claude 能力对比\n\n"
+                        "用户消息：Python 怎么快速入门？\n"
+                        "标题：Python 快速入门方法"
+                    )
                 },
                 {
                     "role": "user",
-                    "content": f"用户第一条消息：{user_first_message}"
+                    "content": user_first_message
                 }
             ],
             temperature=0.3,
-            max_tokens=60,  # 给足空间
+            max_tokens=50,
         )
-        raw_title = response.choices[0].message.content
-        print(f"[Title] 原始输出: '{raw_title}'", flush=True)
+        new_title = response.choices[0].message.content
+        print(f"[Title] 原始输出: '{new_title}'", flush=True)
         
-        # 彻底清理：
-        new_title = raw_title.strip()
-        # 1. 删掉所有英文单词和数字（不管在哪个位置）
-        new_title = re.sub(r'[a-zA-Z]+', '', new_title)
-        new_title = re.sub(r'\d+', '', new_title)
-        # 2. 去引号、去空白
-        new_title = new_title.strip('"').strip("'").strip('"').strip()
-        # 3. 去尾部标点和空白
-        new_title = new_title.rstrip('，。、！？,.!? ')
-        # 4. 如果尾部还有非中文字符，切掉
-        while new_title and not _is_chinese_or_punct(new_title[-1]):
-            new_title = new_title[:-1]
-        # 5. 限制长度
-        if len(new_title) > 30:
-            new_title = new_title[:30]
+        # 最基本清理：去引号、空白、尾部句号
+        new_title = new_title.strip()
+        # 去掉首尾的各种引号
+        new_title = new_title.strip('"\'「」『』《》()（）')
+        new_title = new_title.strip()
+        # 去尾部的句号、问号、感叹号等（可能是 AI 顺手加的）
+        new_title = new_title.rstrip('。.！!？?')
+        new_title = new_title.strip()
         
-        if new_title and len(new_title) >= 2:
+        if new_title and len(new_title) >= 2 and len(new_title) <= 50:
             conversation.title = new_title
             await conversation.save()
             print(f"[Title] 会话 {conversation.id} 标题更新为: {new_title}", flush=True)
         else:
-            print(f"[Title] 总结结果无效，保留默认标题: '{raw_title}'", flush=True)
+            print(f"[Title] 总结结果无效，保留默认标题: '{new_title}'", flush=True)
     except Exception as e:
         print(f"[Title] 总结失败，保留默认标题（可忽略）: {e}", flush=True)
-
-def _is_chinese_or_punct(ch: str) -> bool:
-    """判断字符是中文还是常见中文标点"""
-    if not ch:
-        return False
-    # 中文范围
-    if '\u4e00' <= ch <= '\u9fff':
-        return True
-    # 常见中文标点
-    if ch in '，。、！？；：""''（）《》—…· ':
-        return True
-    return False
 
 # 新建会话
 @router.post("/conversations", response_model=dict)
