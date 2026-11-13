@@ -17,32 +17,35 @@ async def summarise_title(client, conversation, user_first_message: str, assista
     同步：让 LLM 总结对话标题，更新 Conversation.title
     """
     try:
+        # 把规则、例子、实际问题都放在 user message 里，避免 prompt 混淆
+        prompt = f"""请根据以下规则，为用户的问题生成一个简洁的中文标题。
+
+【规则】
+- 5-15 字，概括对话主题
+- 只输出标题本身，不要加任何解释、引号、句号、换行
+- 可以包含常见英文缩写（如 GPT、CPU、iOS），但不要输出英文单词后缀
+- 不要直接复制用户的问题原文，要提炼概括
+
+【例子】
+问题：洋葱浏览器区别于其他浏览器的地方在于？
+标题：洋葱浏览器与普通浏览器的核心区别
+
+问题：GPT-4 和 Claude 哪个更强？
+标题：GPT-4 与 Claude 能力对比
+
+问题：Python 怎么快速入门？
+标题：Python 快速入门方法
+
+【用户的问题】
+{user_first_message}
+
+【现在请直接输出标题】"""
+
         response = await client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "你是一个对话标题生成器。根据用户的第一条消息，"
-                        "生成一个 5-15 字的标题概括对话主题。\n"
-                        "规则：\n"
-                        "1. 只输出标题，不要任何其他内容\n"
-                        "2. 不要加引号、句号、换行\n"
-                        "3. 可以包含常见英文缩写（如 GPT、CPU、iOS 等），但不要输出英文单词后缀\n"
-                        "4. 直接输出标题，别让我再处理你的输出\n"
-                        "例子：\n"
-                        "用户消息：洋葱浏览器区别于其他浏览器的地方在于？\n"
-                        "标题：洋葱浏览器与普通浏览器的核心区别\n\n"
-                        "用户消息：GPT-4 和 Claude 哪个更强？\n"
-                        "标题：GPT-4 与 Claude 能力对比\n\n"
-                        "用户消息：Python 怎么快速入门？\n"
-                        "标题：Python 快速入门方法"
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": user_first_message
-                }
+                {"role": "system", "content": "你是一个简洁的中文标题生成器。只输出标题本身。"},
+                {"role": "user", "content": prompt}
             ],
             temperature=0.3,
             max_tokens=50,
@@ -50,16 +53,19 @@ async def summarise_title(client, conversation, user_first_message: str, assista
         new_title = response.choices[0].message.content
         print(f"[Title] 原始输出: '{new_title}'", flush=True)
         
-        # 最基本清理：去引号、空白、尾部句号
+        # 最基本清理
         new_title = new_title.strip()
-        # 去掉首尾的各种引号
         new_title = new_title.strip('"\'「」『』《》()（）')
         new_title = new_title.strip()
-        # 去尾部的句号、问号、感叹号等（可能是 AI 顺手加的）
         new_title = new_title.rstrip('。.！!？?')
         new_title = new_title.strip()
         
-        if new_title and len(new_title) >= 2 and len(new_title) <= 50:
+        # 兜底：如果 AI 输出太长（可能把规则或问题抄进去了），只取前 15 字
+        if len(new_title) > 30:
+            print(f"[Title] 输出过长，截断: '{new_title}'", flush=True)
+            new_title = new_title[:15]
+        
+        if new_title and len(new_title) >= 2:
             conversation.title = new_title
             await conversation.save()
             print(f"[Title] 会话 {conversation.id} 标题更新为: {new_title}", flush=True)
