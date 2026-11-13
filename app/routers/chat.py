@@ -108,15 +108,11 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
         if not conversation:
             raise HTTPException(status_code=404, detail="会话不存在")
     else:
-        # 新建一个会话，标题用第一条消息前 20 字
-        conversation = await Conversation.create(
-            user=user,
-            title=req.message[:20]
-        )
+        # 新建会话，用默认 title "新对话"，AI 总结后才更新
+        conversation = await Conversation.create(user=user)
 
-    # 判断：只要这是这个会话的第一条消息，就触发总结
-    msg_count = await ChatMessage.filter(conversation_id=conversation.id).count()
-    should_summarise_title = (msg_count == 0)
+    # 判断：只有 title 还是默认的 "新对话" 才触发总结（只触发一次）
+    should_summarise_title = (conversation.title == "新对话")
 
     # 关键改动：查历史只查这个会话的，不再查所有消息
     history = await ChatMessage.filter(
@@ -204,15 +200,11 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
         if not conversation:
             raise HTTPException(status_code=404, detail="会话不存在")
     else:
-        # 新建一个会话，标题用第一条消息前 20 字
-        conversation = await Conversation.create(
-            user=user,
-            title=req.message[:20]
-        )
+        # 新建会话，用默认 title "新对话"，AI 总结后才更新
+        conversation = await Conversation.create(user=user)
 
-    # 判断：只要这是这个会话的第一条消息，就触发总结（前端可能预先创建空会话）
-    msg_count = await ChatMessage.filter(conversation_id=conversation.id).count()
-    should_summarise_title = (msg_count == 0)
+    # 判断：只有 title 还是默认的 "新对话" 才触发总结（只触发一次）
+    should_summarise_title = (conversation.title == "新对话")
 
     # 关键改动：查历史只查这个会话的，不再查所有消息
     history = await ChatMessage.filter(
