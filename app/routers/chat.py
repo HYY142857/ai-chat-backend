@@ -8,8 +8,41 @@ from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
 from app.utils.auth import get_current_user
 import os
+import asyncio
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+async def summarise_title(client, conversation, user_first_message: str, assistant_first_reply: str):
+    """
+    异步：让 LLM 帮你总结对话标题，更新 Conversation.title
+    用 create_task 后台跑，不阻塞用户主流程
+    """
+    try:
+        response = await client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个简洁的标题生成器。请根据用户的第一条消息和 AI 的回复，生成一个 5-12 字的中文标题，概括对话主题。只输出标题本身，不要加引号、不要加解释。"
+                },
+                {
+                    "role": "user",
+                    "content": f"用户第一条消息：{user_first_message}\nAI 回复：{assistant_first_reply}"
+                }
+            ],
+            temperature=0.3,
+            max_tokens=30,  # 标题很短，30 token 够了
+        )
+        new_title = response.choices[0].message.content.strip().strip('"').strip("'")
+        # 截断到 30 字以内，防止超长
+        if len(new_title) > 30:
+            new_title = new_title[:30]
+        conversation.title = new_title
+        await conversation.save()
+        print(f"[Title] 会话 {conversation.id} 标题更新为: {new_title}", flush=True)
+    except Exception as e:
+        # 总结失败，保留原始的"第一条消息前 20 字"作为标题（自动 fallback）
+        print(f"[Title] 总结失败，保留原始标题（可忽略）: {e}", flush=True)
 
 # 新建会话
 @router.post("/conversations", response_model=dict)
@@ -45,6 +78,7 @@ async def delete_conversation(conv_id: int, user_id: int = Depends(get_current_u
     await conv.delete()
     return {"message": "会话已删除"}
 
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: int | None = None  # 可选，如果不传就不关联会话  
@@ -79,6 +113,10 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
             user=user,
             title=req.message[:20]
         )
+
+    # 判断：只要这是这个会话的第一条消息，就触发总结
+    msg_count = await ChatMessage.filter(conversation_id=conversation.id).count()
+    should_summarise_title = (msg_count == 0)
 
     # 关键改动：查历史只查这个会话的，不再查所有消息
     history = await ChatMessage.filter(
@@ -127,6 +165,11 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
                              prompt_tokens=response.usage.prompt_tokens, 
                              completion_tokens=response.usage.completion_tokens
                             )
+    
+    # 如果是新建会话，异步触发标题总结（不阻塞主流程）
+    if should_summarise_title:
+        asyncio.create_task(summarise_title(client, conversation, req.message, reply_text))
+    
     user.total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
     await user.save()
     await conversation.save()  # 直接 save，updated_at 会自动更新
@@ -166,6 +209,10 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
             user=user,
             title=req.message[:20]
         )
+
+    # 判断：只要这是这个会话的第一条消息，就触发总结（前端可能预先创建空会话）
+    msg_count = await ChatMessage.filter(conversation_id=conversation.id).count()
+    should_summarise_title = (msg_count == 0)
 
     # 关键改动：查历史只查这个会话的，不再查所有消息
     history = await ChatMessage.filter(
@@ -229,6 +276,11 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
                                  prompt_tokens=prompt_tokens, 
                                  completion_tokens=completion_tokens
                                 )
+
+        # 如果是新建会话，异步触发标题总结
+        if should_summarise_title and full_reply:
+            asyncio.create_task(summarise_title(client, conversation, req.message, full_reply))
+
         if prompt_tokens or completion_tokens:
             user.total_tokens += prompt_tokens + completion_tokens
             await user.save()
