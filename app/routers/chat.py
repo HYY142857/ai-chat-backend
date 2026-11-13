@@ -8,6 +8,7 @@ from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
 from app.utils.auth import get_current_user
 import os
+import re
 import asyncio
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -38,12 +39,19 @@ async def summarise_title(client, conversation, user_first_message: str, assista
         raw_title = response.choices[0].message.content
         print(f"[Title] 原始输出: '{raw_title}'", flush=True)
         
-        # 彻底清理：去引号、去空白、去尾部标点和非中文字符
-        new_title = raw_title.strip().strip('"').strip("'").strip('"').strip().rstrip('，。、！？,.!? ')
-        # 如果尾部有英文/数字等非中文字符，切掉
+        # 彻底清理：
+        new_title = raw_title.strip()
+        # 1. 删掉所有英文单词和数字（不管在哪个位置）
+        new_title = re.sub(r'[a-zA-Z]+', '', new_title)
+        new_title = re.sub(r'\d+', '', new_title)
+        # 2. 去引号、去空白
+        new_title = new_title.strip('"').strip("'").strip('"').strip()
+        # 3. 去尾部标点和空白
+        new_title = new_title.rstrip('，。、！？,.!? ')
+        # 4. 如果尾部还有非中文字符，切掉
         while new_title and not _is_chinese_or_punct(new_title[-1]):
             new_title = new_title[:-1]
-        # 限制长度
+        # 5. 限制长度
         if len(new_title) > 30:
             new_title = new_title[:30]
         
