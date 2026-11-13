@@ -162,9 +162,9 @@ async def chat(req: ChatRequest,user_id: int = Depends(get_current_user)):
                              completion_tokens=response.usage.completion_tokens
                             )
     
-    # 如果是新建会话，异步触发标题总结（不阻塞主流程）
+    # 如果是新建会话，同步等标题总结完再返回（前端刷新时就是新标题）
     if should_summarise_title:
-        asyncio.create_task(summarise_title(client, conversation, req.message, reply_text))
+        await summarise_title(client, conversation, req.message, reply_text)
     
     user.total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
     await user.save()
@@ -269,9 +269,9 @@ async def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)
                                  completion_tokens=completion_tokens
                                 )
 
-        # 如果是新建会话，异步触发标题总结
+        # 如果是新建会话，同步等标题总结完再返回（前端刷新时就是新标题）
         if should_summarise_title and full_reply:
-            asyncio.create_task(summarise_title(client, conversation, req.message, full_reply))
+            await summarise_title(client, conversation, req.message, full_reply)
 
         if prompt_tokens or completion_tokens:
             user.total_tokens += prompt_tokens + completion_tokens
